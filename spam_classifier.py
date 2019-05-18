@@ -1,24 +1,25 @@
 from collections import Counter, defaultdict
 from machine_learning import split_data
-from nltk.stem.porter import PorterStemmer
 import math, random, re, glob
-import nltk
+from bs4 import BeautifulSoup
+import email
+from nltk.stem.porter import PorterStemmer
 from nltk.tokenize import RegexpTokenizer
 from nltk.stem import LancasterStemmer
 
-#para funcionar baixar o pacote punkt models do nkl
-#nltk.download()
 
 def tokenize(message):
     message = message.lower()  # convert to lowercase
-    #all_words = re.findall("[a-z0-9']+", message)
-    #Considerar não apenas presença de palavras, mas outras características: tokenizer
+    # all_words = re.findall("[a-z0-9']+", message)
+    # Considerar não apenas presença de palavras, mas outras características: tokenizer
     all_words = special_caracter_tokenizer(message)
     radicals_words = porter_stemer(all_words)
     return set(radicals_words)  # remove duplicates
 
 
 # Utilizar apenas radicais das palavras (pesquise por "Porter Stemmer");
+# para funcionar baixar o pacote punkt models do nkl
+# nltk.download()
 def porter_stemer(texto):
     text = []
     porter = PorterStemmer()
@@ -33,7 +34,7 @@ def porter_stemer(texto):
 
 # Considerar não apenas presença de palavras, mas outras características:
 def special_caracter_tokenizer(words):
-    tokenizer = RegexpTokenizer('\s+', gaps=True)
+    tokenizer = RegexpTokenizer('\w+|\$[\d\.]+|\S+')
     words = tokenizer.tokenize(words)
     return words
 
@@ -41,8 +42,8 @@ def special_caracter_tokenizer(words):
 def count_words(training_set):
     """training set consists of pairs (message, is_spam)"""
     counts = defaultdict(lambda: [0, 0])
-    for message, is_spam in training_set:
-        for word in tokenize(message):
+    for email, is_spam in training_set:
+        for word in tokenize(f"{email[0]} {email[1]}"):
             counts[word][0 if is_spam else 1] += 1
     return counts
 
@@ -59,7 +60,6 @@ def word_probabilities(counts, total_spams, total_non_spams, k=0.5):
 def spam_probability(word_probs, message):
     message_words = tokenize(message)
     log_prob_if_spam = log_prob_if_not_spam = 0.0
-
     for word, prob_if_spam, prob_if_not_spam in word_probs:
 
         # for each word in the message,
@@ -73,9 +73,8 @@ def spam_probability(word_probs, message):
         else:
             log_prob_if_spam += math.log(1.0 - prob_if_spam)
             log_prob_if_not_spam += math.log(1.0 - prob_if_not_spam)
-
-    prob_if_spam = math.exp(log_prob_if_spam)
-    prob_if_not_spam = math.exp(log_prob_if_not_spam)
+    prob_if_spam = math.exp(log_prob_if_spam / 100)
+    prob_if_not_spam = math.exp(log_prob_if_not_spam / 100)
     return prob_if_spam / (prob_if_spam + prob_if_not_spam)
 
 
@@ -88,7 +87,7 @@ class NaiveBayesClassifier:
     def train(self, training_set):
         # count spam and non-spam messages
         num_spams = len([is_spam
-                         for message, is_spam in training_set
+                         for email, is_spam in training_set
                          if is_spam])
         num_non_spams = len(training_set) - num_spams
 
@@ -108,25 +107,48 @@ def get_subject_data(path):
 
     # regex for stripping out the leading "Subject:" and any spaces after it
     subject_regex = re.compile(r"^Subject:\s+")
-    body_regex = re.compile(r"^$.*")
 
     # glob.glob returns every filename that matches the wildcarded path
     for fn in glob.glob(path):
         is_spam = "ham" not in fn
 
         with open(fn, 'r', encoding='ISO-8859-1') as file:
-            body_detected = False
-            body = ""
             for line in file:
                 if line.startswith("Subject:"):
                     subject = subject_regex.sub("", line).strip()
                     data.append((subject, is_spam))
-            #     elif line.strip() == '' and not body_detected:
-            #         body_detected = True
-            #     if body_detected:
-            #         body = body + line
-            # data.append((body, is_spam))
 
+    return data
+
+
+def get_subject_and_content_data(path):
+    data = []
+
+    # regex for stripping out the leading "Subject:" and any spaces after it
+    subject_regex = re.compile(r"^Subject:\s+")
+
+    # glob.glob returns every filename that matches the wildcarded path
+    for fn in glob.glob(path):
+        is_spam = "ham" not in fn
+        found_empty_line = False
+        content = ""
+        with open(fn, 'r', encoding='ISO-8859-1') as file:
+            contents = file.read()
+            # print(contents)
+            e = email.message_from_string(contents)
+            content = ''
+            if e.is_multipart():
+                for payload in e.get_payload():
+                    if payload.get_content_type() in ['text/html', 'text/plain']:
+                        content = payload.get_payload()
+            else:
+                content = e.get_payload()
+            subject = e['Subject']
+        soup = BeautifulSoup(content, features="lxml")
+        content = soup.get_text()
+        content = content.replace('\n', ' ')
+
+        data.append(((subject, content), is_spam))
     return data
 
 
@@ -136,15 +158,16 @@ def p_spam_given_word(word_prob):
 
 
 def train_and_test_model(path):
-    data = get_subject_data(path)
+    # data = get_subject_data(path)
+    data = get_subject_and_content_data(path)
     random.seed(0)  # just so you get the same answers as me
     train_data, test_data = split_data(data, 0.75)
 
     classifier = NaiveBayesClassifier()
     classifier.train(train_data)
 
-    classified = [(subject, is_spam, classifier.classify(subject))
-                  for subject, is_spam in test_data]
+    classified = [(email[0], is_spam, classifier.classify(f"{email[0]} {email[1]}"))
+                  for email, is_spam in test_data]
 
     counts = Counter((is_spam, spam_probability > 0.5)  # (actual, predicted)
                      for _, is_spam, spam_probability in classified)
