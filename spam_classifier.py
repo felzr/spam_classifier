@@ -1,28 +1,38 @@
 from collections import Counter, defaultdict
 from machine_learning import split_data
+from nltk.stem.porter import PorterStemmer
 import math, random, re, glob
-from nltk.stem import PorterStemmer
-from nltk.tokenize import sent_tokenize, word_tokenize
+import nltk
 from nltk.tokenize import RegexpTokenizer
+from nltk.stem import LancasterStemmer
 
+#para funcionar baixar o pacote punkt models do nkl
+#nltk.download()
 
 def tokenize(message):
     message = message.lower()  # convert to lowercase
-    all_words = re.findall("[a-z0-9']+", message)  # extract the words
-    radicals_words = porter_temmer(all_words)  # chama funcao para
+    #all_words = re.findall("[a-z0-9']+", message)
+    #Considerar não apenas presença de palavras, mas outras características: tokenizer
+    all_words = special_caracter_tokenizer(message)
+    radicals_words = porter_stemer(all_words)
     return set(radicals_words)  # remove duplicates
 
 
 # Utilizar apenas radicais das palavras (pesquise por "Porter Stemmer");
-def porter_temmer(words):
-    ps = PorterStemmer()
-    for w in words:
-        new_words = ps.stem(w)
-    return new_words
+def porter_stemer(texto):
+    text = []
+    porter = PorterStemmer()
+    lancaster = LancasterStemmer()
+    for words in texto:
+        word_porter = porter.stem(words)
+        text.append(word_porter)
+        word_lancaster = lancaster.stem(words)
+        text.append(word_lancaster)
+    return text
 
 
-# Considerar não apenas presença de palavras, mas outras características
-def special_caracter(words):
+# Considerar não apenas presença de palavras, mas outras características:
+def special_caracter_tokenizer(words):
     tokenizer = RegexpTokenizer('\s+', gaps=True)
     words = tokenizer.tokenize(words)
     return words
@@ -93,7 +103,6 @@ class NaiveBayesClassifier:
         return spam_probability(self.word_probs, message)
 
 
-# Analisar o conteúdo da mensagem e não apenas o Assunto;
 def get_subject_data(path):
     data = []
 
@@ -109,15 +118,14 @@ def get_subject_data(path):
             body_detected = False
             body = ""
             for line in file:
-                text = line
                 if line.startswith("Subject:"):
                     subject = subject_regex.sub("", line).strip()
                     data.append((subject, is_spam))
-                elif line.strip() == '' and not body_detected:
-                    body_detected = True
-                if body_detected:
-                    body = body + line
-            data.append((body, is_spam))
+            #     elif line.strip() == '' and not body_detected:
+            #         body_detected = True
+            #     if body_detected:
+            #         body = body + line
+            # data.append((body, is_spam))
 
     return data
 
